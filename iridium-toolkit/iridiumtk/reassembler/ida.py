@@ -40,6 +40,7 @@ class ReassembleIDA(Reassemble):
         q.data=   m.group(5)
         q.cont=(q.f1=='1')
         q.enrich()
+        q.line_numbers=[q.line_num]
         global _starttime
         if _starttime is None: _starttime=int(q.starttime)
 #       print "%s %s ctr:%02d %s"%(q.time,q.frequency,q.ctr,q.data)
@@ -66,19 +67,20 @@ class ReassembleIDA(Reassemble):
         self.olevel=m.level
 
         ok=False
-        for (idx,(freq,time,ctr,dat,cont,ul)) in enumerate(self.buf[:]):
+        for (idx,(freq,time,ctr,dat,cont,ul,lines)) in enumerate(self.buf[:]):
             if (freq-260)<m.frequency<(freq+260) and time[-1]<=m.time<=(time[-1]+280) and (ctr+1)%8==m.ctr and ul==m.ul:
                 del self.buf[idx]
                 dat=dat+"."+m.data
                 time.append(m.time)
+                lines.extend(m.line_numbers)
                 if m.cont:
-                    self.buf.append([m.frequency,time,m.ctr,dat,m.cont,m.ul])
+                    self.buf.append([m.frequency,time,m.ctr,dat,m.cont,m.ul,lines])
                 else:
                     self.stat_ok+=1
                     if config.verbose:
                         print(">assembled: [%s] %s"%(",".join(["%s"%x for x in time+[m.time]]),dat))
                     data=bytes().fromhex( dat.replace('.',' ').replace('!',' ') )
-                    return [[data,m.time,ul,m.level,freq]]
+                    return [[data,m.time,ul,m.level,freq,lines]]
                 self.stat_fragments+=1
                 ok=True
                 break
@@ -88,12 +90,12 @@ class ReassembleIDA(Reassemble):
             if config.verbose:
                 print(">single: [%s] %s"%(m.time,m.data))
             data=bytes().fromhex( m.data.replace('.',' ').replace('!',' ') )
-            return [[data,m.time,m.ul,m.level,m.frequency]]
+            return [[data,m.time,m.ul,m.level,m.frequency,m.line_numbers]]
         elif m.ctr==0 and m.cont: # New long packet
             self.stat_fragments+=1
             if config.verbose:
                 print("initial: ",m.time,"(",m.cont,m.ctr,")",m.data)
-            self.buf.append([m.frequency,[m.time],m.ctr,m.data,m.cont,m.ul])
+            self.buf.append([m.frequency,[m.time],m.ctr,m.data,m.cont,m.ul,m.line_numbers[:]])
         elif m.ctr>0:
             self.stat_broken+=1
             self.stat_fragments+=1
@@ -103,7 +105,7 @@ class ReassembleIDA(Reassemble):
         else:
              print("unknown: ",m.time,m.cont,m.ctr,m.data)
         # expire packets
-        for (idx,(freq,time,ctr,dat,cont,ul)) in enumerate(self.buf[:]):
+        for (idx,(freq,time,ctr,dat,cont,ul,lines)) in enumerate(self.buf[:]):
             if time[-1]+1000<=m.time:
                 self.stat_broken+=1
                 del self.buf[idx]
@@ -119,7 +121,11 @@ class ReassembleIDA(Reassemble):
         print("%d dupes removed."%(self.stat_dupes))
 
     def consume(self,q):
-        (data,time,ul,level,freq)=q
+        if len(q)==6:
+            (data,time,ul,level,freq,lines)=q
+        else:
+            (data,time,ul,level,freq)=q
+            lines=None
         if ul:
             ul="UL"
         else:
@@ -128,8 +134,13 @@ class ReassembleIDA(Reassemble):
         str+=to_ascii(data,True)
 
         freq_print=channelize_str(freq)
+        if lines:
+            lines_str=",".join(str(x) for x in lines)
+            line_info=f" lines:{lines_str}"
+        else:
+            line_info=""
 
-        print("%15.6f %s %s %s | %s"%(time,freq_print,ul,data.hex(" "),str), file=outfile)
+        print("%15.6f %s %s %s | %s%s"%(time,freq_print,ul,data.hex(" "),str,line_info), file=outfile)
 
 # Mobile station classmark 2 10.5.1.6
 def p_cm2(data):
