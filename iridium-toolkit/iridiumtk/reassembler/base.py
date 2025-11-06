@@ -111,6 +111,7 @@ class Reassemble(object):
         try:
             q=MyObject()
             q.typ,q.name,q.mstime,q.frequency,q.confidence,q.level,q.symbols,q.uldl,q.data=line.split(None,8)
+            q.line_num=self.stat_line
             return q
         except ValueError:
             print("Couldn't parse input line: ",line, end=' ', file=sys.stderr)
